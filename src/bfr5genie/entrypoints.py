@@ -27,7 +27,8 @@ def _base_arguments_parser():
         "--mitigate-antenna",
         default=[],
         nargs="+",
-        help="The names of antenna to migigate (associated calibration coefficients are set to zero)."
+        metavar=("antname"),
+        help="The names of antenna to mitigate (associated calibration coefficients are set to zero)."
     )
     parser.add_argument(
         "-p",
@@ -120,7 +121,7 @@ def _add_arguments_targetselector(parser):
     parser.add_argument(
         "--take-targets",
         type=int,
-        default=0,
+        default=5,
         help="The number of targets to form beams on from the redis key."
     )
     parser.add_argument(
@@ -134,19 +135,19 @@ def _add_arguments_targetselector(parser):
 def _add_arguments_raster(parser):
     parser.add_argument(
         "--raster-ra",
-        default=None,
+        required=True,
         metavar=("ra_offset_start", "ra_offset_stop", "ra_offset_step"),
         nargs=3,
         type=float,
-        help="The phase-center relative right-ascension range (in hours) for a raster set of beams (requires requires --raster-dec)."
+        help="The phase-center relative right-ascension range (in hours) for a raster set of beams."
     )
     parser.add_argument(
         "--raster-dec",
-        default=None,
+        required=True,
         metavar=("dec_offset_start", "dec_offset_stop", "dec_offset_step"),
         nargs=3,
         type=float,
-        help="The phase-center relative declination range (in degrees) for a raster set of beams (requires --raster-ra)."
+        help="The phase-center relative declination range (in degrees) for a raster set of beams."
     )
 
 

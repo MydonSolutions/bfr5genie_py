@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bfr5genie"
+version = "0.0.1"
+authors = [
+  { name="Ross Donnachie", email="code@radonn.co.za" },
+]
+description = "BFR5 Generator"
+readme = "README.md"
+requires-python = ">=3.7"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+  "h5py",
+  "numpy",
+  "pyproj",
+  "astropy",
+  "pyerfa",
+  "tomli",
+]
+
+[project.scripts]
+bfr5gen = "bfr5genie:entrypoints.generate_for_raw"
+bfr5gen_raster = "bfr5genie:entrypoints.generate_raster_for_raw"
+bfr5gen_targets = "bfr5genie:entrypoints.generate_targets_for_raw"

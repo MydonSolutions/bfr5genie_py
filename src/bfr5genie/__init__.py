@@ -21,7 +21,12 @@ def _degrees_process(value):
     if isinstance(value, str):
         if value.count(':') == 2:
             value = value.split(':')
-            return float(value[0]) + (float(value[1]) + float(value[2])/60)/60
+            value_f = float(value[0])
+            if value_f < 0:
+                value_f -= (float(value[1]) + float(value[2])/60)/60
+            else:
+                value_f += (float(value[1]) + float(value[2])/60)/60
+            return value_f
         return float(value)
     return float(value)
 

@@ -1,4 +1,4 @@
-import os, sys, argparse, glob, time
+import os, sys, argparse, glob, time, json
 import numpy
 import redis
 from astropy.coordinates import SkyCoord

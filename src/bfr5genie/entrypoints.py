@@ -172,6 +172,10 @@ def _generate_bfr5_for_raw(
             beam_name = coords[-1]
         else:
             beam_name = f"BEAM_{i}"
+        if all(coord_str[0] in ["+", "-"] for coord_str in coords[0:2]):
+            coords[0] = phase_center.ra.deg*12.0/180.0 + float(coords[0])
+            coords[1] = phase_center.dec.deg + float(coords[1])
+
         beams[beam_name] = SkyCoord(
             float(coords[0]) * numpy.pi / 12.0,
             float(coords[1]) * numpy.pi / 180.0,
@@ -258,8 +262,6 @@ def generate_raster_for_raw(arg_values=None):
     parser = _base_arguments_parser()
     _add_arguments_raster(parser)
     args = parser.parse_args(arg_values if arg_values is not None else sys.argv[1:])
-    
-    raw_header, antenna_names, frequencies_hz, times_unix, phase_center, primary_center, telinfo, output_filepath, calcoeff_bandpass, calcoeff_gain = _parse_base_arguments(args)
 
     beam_strs = []
     raster_args = [args.raster_ra, args.raster_dec]
@@ -267,19 +269,10 @@ def generate_raster_for_raw(arg_values=None):
 
     for ra_index, ra in enumerate(numpy.arange(*args.raster_ra)):
         for dec_index, dec in enumerate(numpy.arange(*args.raster_dec)):
-            beam_strs.append(f"{phase_center.ra.deg*12.0/180.0 + ra},{phase_center.dec.deg + dec},raster_{ra_index}_{dec_index}")
+            beam_strs.append(f"{ra:+0.15f},{dec:+0.15f},raster_{ra_index}_{dec_index}")
 
     _generate_bfr5_for_raw(
-        raw_header,
-        antenna_names,
-        frequencies_hz,
-        times_unix,
-        phase_center,
-        primary_center,
-        telinfo,
-        output_filepath,
-        calcoeff_bandpass,
-        calcoeff_gain,
+        *_parse_base_arguments(args),
         beam_strs
     )
 
@@ -291,7 +284,7 @@ def generate_for_raw(arg_values=None):
         default=None,
         action="append",
         metavar=("ra_hour,dec_deg[,name]"),
-        help="The coordinates of a beam (optionally the name too)."
+        help="The coordinates of a beam (optionally the name too). If the coordinates both start with either + or - symbols, they are made relative to the phase-center."
     )
     args = parser.parse_args(arg_values if arg_values is not None else sys.argv[1:])
 

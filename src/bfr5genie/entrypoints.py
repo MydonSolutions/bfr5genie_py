@@ -1,6 +1,8 @@
-import os, sys, argparse, glob
+import os, sys, argparse, glob, time
 import numpy
+import redis
 from astropy.coordinates import SkyCoord
+from astroquery.jplhorizons import Horizons
 
 import bfr5genie
 
@@ -121,7 +123,7 @@ def _add_arguments_targetselector(parser):
     parser.add_argument(
         "--take-targets",
         type=int,
-        default=5,
+        default=0,
         help="The number of targets to form beams on from the redis key."
     )
     parser.add_argument(
@@ -129,6 +131,24 @@ def _add_arguments_targetselector(parser):
         type=int,
         default=1,
         help="The number of targets to skip. Typically 1 to skip the first target which is phase-center."
+    )
+    parser.add_argument(
+        "--target",
+        type=str,
+        default=[],
+        action="append",
+        help="A named target to retrieve using astroquery.jplhorizons."
+    )
+
+
+def _add_arguments_beams(parser):
+    parser.add_argument(
+        "-b",
+        "--beam",
+        default=None,
+        action="append",
+        metavar=("ra_hour,dec_deg[,name]"),
+        help="The coordinates of a beam (optionally the name too). If the coordinates both start with either + or - symbols, they are made relative to the phase-center."
     )
 
 
@@ -212,6 +232,7 @@ def _generate_bfr5_for_raw(
         reference_antenna = raw_header.get("REFANT", None)
     )
     bfr5genie.logger.info(output_filepath)
+    return output_filepath
 
 
 def generate_targets_for_raw(arg_values=None):
@@ -222,29 +243,46 @@ def generate_targets_for_raw(arg_values=None):
     raw_header, antenna_names, frequencies_hz, times_unix, phase_center, primary_center, telinfo, output_filepath, calcoeff_bandpass, calcoeff_gain = _parse_base_arguments(args)
 
     beam_strs = []
-    redis_obj = redis.Redis(host=args.redis_hostname, port=args.redis_port)
-    if args.targets_redis_key_timestamp is None:
-        file_start_packet_index = raw_header["SYNCTIME"] + raw_header["PKTIDX"]
-        bfr5genie.logger.info(f"Targets key timestamp is taken to be the starting packet-index of the file: {file_start_packet_index}")
-        args.targets_redis_key_timestamp = file_start_packet_index
+    if args.take_targets > 0:
+        redis_obj = redis.Redis(host=args.redis_hostname, port=args.redis_port)
+        if args.targets_redis_key_timestamp is None:
+            file_start_packet_index = raw_header["SYNCTIME"] + raw_header["PKTIDX"]
+            bfr5genie.logger.info(f"Targets key timestamp is taken to be the starting packet-index of the file: {file_start_packet_index}")
+            args.targets_redis_key_timestamp = file_start_packet_index
 
-    targets_redis_key = f"{args.targets_redis_key_prefix}:{args.targets_redis_key_timestamp}"
-    bfr5genie.logger.info(f"Accessing targets at {targets_redis_key}.")
-    targets = redis_obj.get(targets_redis_key)
-    if targets is None:
-        raise ValueError(f"No targets to retrieve at: {targets_redis_key}.")
+        targets_redis_key = f"{args.targets_redis_key_prefix}:{args.targets_redis_key_timestamp}"
+        bfr5genie.logger.info(f"Accessing targets at {targets_redis_key}.")
+        targets = redis_obj.get(targets_redis_key)
+        if targets is None:
+            raise ValueError(f"No targets to retrieve at: {targets_redis_key}.")
 
-    targets = json.loads(targets)
+        targets = json.loads(targets)
 
-    for target in targets[args.take_targets_after : args.take_targets_after+args.take_targets]:
-        beam_strs.append(
-            f"{target['ra']*24/360},{target['dec']},{target['source_id']}"
+        for target in targets[args.take_targets_after : args.take_targets_after+args.take_targets]:
+            beam_strs.append(
+                f"{target['ra']*24/360},{target['dec']},{target['source_id']}"
+            )
+    
+    jd_now = time.time()/86400 + 2440587.5 
+    for target in args.target:
+        obj = Horizons(
+            id=target,
+            location={
+                'lon': telinfo["longitude"]*180/numpy.pi,
+                'lat': telinfo["latitude"]*180/numpy.pi,
+                'elevation': telinfo["altitude"]/1000
+            },
+            epochs=jd_now
         )
+        eph = obj.ephemerides()
+        for row in eph:
+            beam_strs.append(f"{row['RA']*12/180},{row['DEC']},{row['targetname']}")
+
 
     if len(beam_strs) < args.take_targets:
         bfr5genie.logger.warning(f"Could only take {len(beam_strs)} targets.")
 
-    _generate_bfr5_for_raw(
+    return _generate_bfr5_for_raw(
         raw_header,
         antenna_names,
         frequencies_hz,
@@ -271,21 +309,14 @@ def generate_raster_for_raw(arg_values=None):
         for dec_index, dec in enumerate(numpy.arange(*args.raster_dec)):
             beam_strs.append(f"{ra:+0.15f},{dec:+0.15f},raster_{ra_index}_{dec_index}")
 
-    _generate_bfr5_for_raw(
+    return _generate_bfr5_for_raw(
         *_parse_base_arguments(args),
         beam_strs
     )
 
 def generate_for_raw(arg_values=None):
     parser = _base_arguments_parser()
-    parser.add_argument(
-        "-b",
-        "--beam",
-        default=None,
-        action="append",
-        metavar=("ra_hour,dec_deg[,name]"),
-        help="The coordinates of a beam (optionally the name too). If the coordinates both start with either + or - symbols, they are made relative to the phase-center."
-    )
+    _add_arguments_beams(parser)
     args = parser.parse_args(arg_values if arg_values is not None else sys.argv[1:])
 
     raw_header, antenna_names, frequencies_hz, times_unix, phase_center, primary_center, telinfo, output_filepath, calcoeff_bandpass, calcoeff_gain = _parse_base_arguments(args)
@@ -311,7 +342,7 @@ def generate_for_raw(arg_values=None):
         bfr5genie.logger.info(args.beam)
         beam_strs = list(b for b in args.beam)
 
-    _generate_bfr5_for_raw(
+    return _generate_bfr5_for_raw(
         raw_header,
         antenna_names,
         frequencies_hz,

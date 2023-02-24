@@ -169,6 +169,11 @@ def _add_arguments_raster(parser):
         type=float,
         help="The phase-center relative declination range (in degrees) for a raster set of beams."
     )
+    parser.add_argument(
+        "--include-stops",
+        action="store_true",
+        help="Include the stop value of the raster ranges."
+    )
 
 
 def _generate_bfr5_for_raw(
@@ -304,6 +309,11 @@ def generate_raster_for_raw(arg_values=None):
     beam_strs = []
     raster_args = [args.raster_ra, args.raster_dec]
     assert all(raster_args), f"Must supply both raster arguments for raster beams to be generated"
+
+    if args.include_stops:
+        # add step to stop to ensure it is included
+        args.raster_ra[1] += args.raster_ra[2]
+        args.raster_dec[1] += args.raster_dec[2]
 
     for ra_index, ra in enumerate(numpy.arange(*args.raster_ra)):
         for dec_index, dec in enumerate(numpy.arange(*args.raster_dec)):

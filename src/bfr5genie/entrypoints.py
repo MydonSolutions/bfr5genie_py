@@ -1,4 +1,4 @@
-import os, sys, argparse, glob, time, json
+import os, sys, argparse, glob, time, json, logging
 import numpy
 import redis
 from astropy.coordinates import SkyCoord
@@ -50,10 +50,21 @@ def _base_arguments_parser():
         nargs="+",
         help="The path to the GUPPI RAW file stem or of all files.",
     )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
+        help="Increase the verbosity of the generation (0=Error, 1=Warn, 2=Info, 3=Debug)."
+    )
     return parser
 
 def _parse_base_arguments(args):
-    
+    bfr5genie.logger.setLevel(
+        [
+            logging.ERROR, logging.WARNING, logging.INFO, logging.DEBUG
+        ][args.verbose]
+    )
     if len(args.raw_filepaths) == 1 and not os.path.exists(args.raw_filepaths[0]):
         bfr5genie.logger.info(f"Given RAW filepath does not exist, assuming it is the stem.")
         args.raw_filepaths = glob.glob(f"{args.raw_filepaths[0]}*.raw")
@@ -68,7 +79,6 @@ def _parse_base_arguments(args):
         output_filepath = os.path.join(input_dir, f"{os.path.splitext(input_filename)[0]}.bfr5")
     else:
         output_filepath = args.output_filepath
-    bfr5genie.logger.info(f"Output filepath: {output_filepath}")
 
     if args.phase_center is not None:
         (phase_center_ra, phase_center_dec) = args.phase_center.split(',')
@@ -236,7 +246,7 @@ def _generate_bfr5_for_raw(
         primary_center = primary_center,
         reference_antenna = raw_header.get("REFANT", None)
     )
-    bfr5genie.logger.info(output_filepath)
+    bfr5genie.logger.info(f"Output: {output_filepath}")
     return output_filepath
 
 

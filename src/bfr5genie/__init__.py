@@ -15,7 +15,7 @@ import tomli as tomllib # `tomllib` as of Python 3.11 (PEP 680)
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.StreamHandler())
-logger.setLevel(logging.WARNING)
+logger.setLevel(logging.ERROR)
 
 def _degrees_process(value):
     if isinstance(value, str):
@@ -282,7 +282,7 @@ def get_raw_metadata(raw_filepaths, raw_antname_callback=None):
                 raw_header[key] = value
                 header_entry = f.read(80).decode()
 
-            logger.debug(f"First header: {raw_header} (ends @ position {f.tell()})")
+            logger.debug(f"{raw_filepath} First header: {raw_header} (ends @ position {f.tell()})")
 
             # count number of blocks in file, assume BLOCSIZE is consistent
             data_seek_size = raw_header["BLOCSIZE"]

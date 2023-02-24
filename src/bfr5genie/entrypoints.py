@@ -226,8 +226,12 @@ def _generate_bfr5_for_raw(
     beam_coordinates_string = "\n\t".join(f"{k}: {v}".replace("\n", "") for k, v in beams.items())
     bfr5genie.logger.info(f"Beam coordinates:\n\t{beam_coordinates_string}")
 
-    telescope_antenna_names = set([antenna["name"] for antenna in telinfo["antennas"] if antenna["name"] in antenna_names])
-    assert len(telescope_antenna_names) == len(antenna_names), f"Telescope information does not cover RAW listed antenna: {set(antenna_names).difference(telescope_antenna_names)}"
+    antenna_telinfo = {
+        antenna["name"]: antenna
+        for antenna in telinfo["antennas"]
+        if antenna["name"] in antenna_names
+    }
+    assert len(antenna_telinfo) == len(antenna_names), f"Telescope information does not cover RAW listed antenna: {set(antenna_names).difference(telescope_antenna_names)}"
 
     bfr5genie.write(
         output_filepath,
@@ -237,7 +241,7 @@ def _generate_bfr5_for_raw(
         beams,
         phase_center,
         (telinfo["longitude"], telinfo["latitude"], telinfo["altitude"]),
-        [antenna for antenna in telinfo["antennas"] if antenna["name"] in antenna_names],
+        [antenna_telinfo[antname] for antname in antenna_names],
         times_unix,
         frequencies_hz,
         calcoeff_bandpass,

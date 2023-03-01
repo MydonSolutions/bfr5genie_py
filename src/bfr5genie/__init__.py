@@ -121,36 +121,19 @@ def _get_fringe_rate(delay, fringeFrequency):
     return -1.0j*2.0*numpy.pi*delay*fringeFrequency
 
 
-def phasors(
+def phasor_delays(
     antennaPositions: numpy.ndarray, # [Antenna, XYZ] relative to whatever reference position
     boresightCoordinate: SkyCoord, # ra-dec
     beamCoordinates: 'list[SkyCoord]', #  ra-dec
     times: numpy.ndarray, # [unix]
-    frequencies: numpy.ndarray, # [channel-frequencies] Hz
-    calibrationCoefficients: numpy.ndarray, # [Frequency-channel, Polarization, Antenna]
     lla: tuple, # Longitude, Latitude, Altitude (radians)
     referenceAntennaIndex: int = 0,
 ):
     """
     Return
     ------
-        phasors (B, A, F, T, P), delays_ns (T, A, B)
-
+        delays_ns (T, A, B)
     """
-
-    assert frequencies.shape[0] % calibrationCoefficients.shape[0] == 0, f"Calibration Coefficients' Frequency axis is not a factor of frequencies: {calibrationCoefficients.shape[0]} vs {frequencies.shape[0]}."
-
-    phasorDims = (
-        beamCoordinates.shape[0],
-        antennaPositions.shape[0],
-        frequencies.shape[0],
-        times.shape[0],
-        calibrationCoefficients.shape[1]
-    )
-    calibrationCoeffFreqRatio = frequencies.shape[0] // calibrationCoefficients.shape[0]
-    calibrationCoefficients = numpy.repeat(calibrationCoefficients, calibrationCoeffFreqRatio, axis=0) # repeat frequencies
-
-    phasors = numpy.zeros(phasorDims, dtype=numpy.complex128)
 
     delays_ns = numpy.zeros(
         (
@@ -170,31 +153,63 @@ def phasors(
             lla
         )
         boresightUvw -= boresightUvw[referenceAntennaIndex:referenceAntennaIndex+1, :]
-        for b in range(phasorDims[0]):
+        for b, beam_coord in enumerate(beamCoordinates):
             # These UVWs are centred at the reference antenna,
             # i.e. UVW_irefant = [0, 0, 0]
             beamUvw = _compute_uvw( # [Antenna, UVW]
                 ts,
-                beamCoordinates[b],
+                beam_coord,
                 antennaPositions,
                 lla
             )
             beamUvw -= beamUvw[referenceAntennaIndex:referenceAntennaIndex+1, :]
 
             delays_ns[t, b, :] = (beamUvw[:,2] - boresightUvw[:,2]) * (1e9 / const.c.value)
+
+    return delays_ns
+
+
+def phasors_from_delays(
+    delays_ns: numpy.ndarray, # [Time, Beam, Antenna]
+    frequencies: numpy.ndarray, # [channel-frequencies] Hz
+    calibrationCoefficients: numpy.ndarray, # [Frequency-channel, Polarization, Antenna]
+):
+    """
+    Return
+    ------
+        phasors (B, A, F, T, P)
+    """
+
+    assert frequencies.shape[0] % calibrationCoefficients.shape[0] == 0, f"Calibration Coefficients' Frequency axis is not a factor of frequencies: {calibrationCoefficients.shape[0]} vs {frequencies.shape[0]}."
+
+    phasorDims = (
+        delays_ns.shape[1],
+        delays_ns.shape[2],
+        frequencies.shape[0],
+        delays_ns.shape[0],
+        calibrationCoefficients.shape[1]
+    )
+    calibrationCoeffFreqRatio = frequencies.shape[0] // calibrationCoefficients.shape[0]
+    calibrationCoefficients = numpy.repeat(calibrationCoefficients, calibrationCoeffFreqRatio, axis=0) # repeat frequencies
+
+    phasors = numpy.zeros(phasorDims, dtype=numpy.complex128)
+
+    for t in range(delays_ns.shape[0]):
+        for b in range(delays_ns.shape[1]):
             for a, delay in enumerate(delays_ns[t, b, :]):
                 delay_factors = _create_delay_phasors(
-                    delay,
+                    delay*1e-9,
                     frequencies - frequencies[0]
                 )
                 fringe_factor = _get_fringe_rate(
-                    delay,
+                    delay*1e-9,
                     frequencies[0]
                 )
 
                 phasor = numpy.exp(delay_factors+fringe_factor)
                 phasors[b, a, :, t, :] = numpy.reshape(numpy.repeat(phasor, 2), (len(phasor), 2)) * calibrationCoefficients[:, :, a]
-    return phasors, delays_ns
+    return phasors
+
 
 def get_telescope_metadata(telescope_info_toml_filepath):
     """
@@ -392,13 +407,11 @@ def write(
         reference_antenna = antenna_names[0]
 
     antenna_positions = numpy.array([ant["position"] for ant in antennas])
-    _, delay_ns = phasors(
+    delay_ns = phasor_delays(
         antenna_positions,
         phase_center,
         numpy.array(list(beam_src_coord_map.values())),
         times_unix,
-        frequencies_hz,
-        calcoeff,
         reference_lla,
         referenceAntennaIndex = antenna_names.index(reference_antenna)
     )

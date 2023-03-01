@@ -168,7 +168,7 @@ def _add_arguments_raster(parser):
         required=True,
         metavar=("ra_offset_start", "ra_offset_stop", "ra_offset_step"),
         nargs=3,
-        type=float,
+        type=str,
         help="The phase-center relative right-ascension range (in hours) for a raster set of beams."
     )
     parser.add_argument(
@@ -176,7 +176,7 @@ def _add_arguments_raster(parser):
         required=True,
         metavar=("dec_offset_start", "dec_offset_stop", "dec_offset_step"),
         nargs=3,
-        type=float,
+        type=str,
         help="The phase-center relative declination range (in degrees) for a raster set of beams."
     )
     parser.add_argument(
@@ -208,7 +208,7 @@ def _generate_bfr5_for_raw(
         else:
             beam_name = f"BEAM_{i}"
         if all(coord_str[0] in ["+", "-"] for coord_str in coords[0:2]):
-            coords[0] = phase_center.ra.deg*12.0/180.0 + float(coords[0])
+            coords[0] = phase_center.ra.hourangle + float(coords[0])
             coords[1] = phase_center.dec.deg + float(coords[1])
 
         beams[beam_name] = SkyCoord(
@@ -320,21 +320,41 @@ def generate_raster_for_raw(arg_values=None):
     _add_arguments_raster(parser)
     args = parser.parse_args(arg_values if arg_values is not None else sys.argv[1:])
 
+    raw_header, antenna_names, frequencies_hz, times_unix, phase_center, primary_center, telinfo, output_filepath, calcoeff_bandpass, calcoeff_gain = _parse_base_arguments(args)
+
     beam_strs = []
     raster_args = [args.raster_ra, args.raster_dec]
     assert all(raster_args), f"Must supply both raster arguments for raster beams to be generated"
 
+    raster_ra_relative = all(map(lambda s: s[0] in ["+", "-"], args.raster_ra[0:2]))
+    raster_dec_relative = all(map(lambda s: s[0] in ["+", "-"], args.raster_dec[0:2]))
+
+    args.raster_ra = list(map(float, args.raster_ra))
+    args.raster_dec = list(map(float, args.raster_dec))
     if args.include_stops:
         # add step to stop to ensure it is included
         args.raster_ra[1] += args.raster_ra[2]
         args.raster_dec[1] += args.raster_dec[2]
 
     for ra_index, ra in enumerate(numpy.arange(*args.raster_ra)):
+        if not raster_ra_relative:
+            ra -= primary_center.ra.hourangle
         for dec_index, dec in enumerate(numpy.arange(*args.raster_dec)):
+            if not raster_dec_relative:
+                dec -= primary_center.dec.degree
             beam_strs.append(f"{ra:+0.15f},{dec:+0.15f},raster_{ra_index}_{dec_index}")
 
     return _generate_bfr5_for_raw(
-        *_parse_base_arguments(args),
+        raw_header,
+        antenna_names,
+        frequencies_hz,
+        times_unix,
+        phase_center,
+        primary_center,
+        telinfo,
+        output_filepath,
+        calcoeff_bandpass,
+        calcoeff_gain,
         beam_strs
     )
 

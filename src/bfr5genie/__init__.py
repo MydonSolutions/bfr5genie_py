@@ -366,11 +366,10 @@ def get_raw_metadata(raw_filepaths, raw_antname_callback=None):
     )
 
     # find the observation channel0 frequency, which is the start of the frequency range
-    frequency_channel_0_hz = raw_header["OBSFREQ"] - (nchan/2 + 0.5 + schan)*raw_header["CHAN_BW"]
+    frequency_channel_0_hz = raw_header["OBSFREQ"] - (nchan/2 + schan)*raw_header["CHAN_BW"]
     frequencies_hz = (frequency_channel_0_hz + numpy.arange(schan+nchan)*raw_header["CHAN_BW"])*1e6
     mid_chan = schan + (nchan//2)
-    center_freq = (frequencies_hz[mid_chan] + frequencies_hz[mid_chan+1]) / 2
-    assert center_freq == raw_header["OBSFREQ"]*1e6, f"{frequencies_hz[mid_chan]} + {frequencies_hz[mid_chan+1]} / 2 = {center_freq} != {raw_header['OBSFREQ']*1e6}"
+    assert frequencies_hz[mid_chan] == raw_header["OBSFREQ"]*1e6, f"frequencies_hz[{mid_chan}] = {mid_chan} != {raw_header['OBSFREQ']*1e6} (OBSFREQ)"
 
     times_unix = (start_time_unix + 0.5 * block_time_span_s) + numpy.arange(raw_blocks)*block_time_span_s
 

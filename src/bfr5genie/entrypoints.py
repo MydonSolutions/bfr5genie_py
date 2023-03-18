@@ -68,7 +68,7 @@ def _parse_base_arguments(args):
     if len(args.raw_filepaths) == 1 and not os.path.exists(args.raw_filepaths[0]):
         bfr5genie.logger.info(f"Given RAW filepath does not exist, assuming it is the stem.")
         args.raw_filepaths = glob.glob(f"{args.raw_filepaths[0]}*.raw")
-        bfr5genie.logger.info(f"Found {args.raw_filepaths}.")
+        bfr5genie.logger.debug(f"Found {args.raw_filepaths}.")
 
     raw_header, antenna_names, frequencies_hz, times_unix, phase_center, primary_center = bfr5genie.get_raw_metadata(args.raw_filepaths, raw_antname_callback= None if not args.ata_raw else lambda x: x[:-1])
 
@@ -169,7 +169,11 @@ def _add_arguments_raster(parser):
         metavar=("ra_offset_start", "ra_offset_stop", "ra_offset_step"),
         nargs=3,
         type=str,
-        help="The phase-center relative right-ascension range (in hours) for a raster set of beams."
+        help="""The right-ascension range (in hours) for a raster set of beams.
+        Can be specified as sexagesimal.
+        Begin both start/stop values with a sign for phase-center relative values.
+        Begin step value with '/' to indicate that it is number of steps instead of step size.
+        """
     )
     parser.add_argument(
         "--raster-dec",
@@ -177,7 +181,11 @@ def _add_arguments_raster(parser):
         metavar=("dec_offset_start", "dec_offset_stop", "dec_offset_step"),
         nargs=3,
         type=str,
-        help="The phase-center relative declination range (in degrees) for a raster set of beams."
+        help="""The declination range (in degrees) for a raster set of beams.
+        Can be specified as sexagesimal (with ':').
+        Begin both start/stop values with a sign for phase-center relative values.
+        Begin step value with '/' to indicate that it is number of steps instead of step size.
+        """
     )
     parser.add_argument(
         "--include-stops",
@@ -185,6 +193,20 @@ def _add_arguments_raster(parser):
         help="Include the stop value of the raster ranges."
     )
 
+def _parse_sexagesimal(s:str):
+    if ":" in s:
+        parts = s.split(":")
+        value = float(parts[0])
+        denom = 60
+        value_dec = 0
+        for part in parts[1:]:
+            value_dec += float(part) / denom
+            denom *= 60
+        if value < 0:
+            return value - value_dec
+        return value + value_dec
+    else:
+        return float(s)
 
 def _generate_bfr5_for_raw(
     raw_header,
@@ -231,7 +253,7 @@ def _generate_bfr5_for_raw(
         for antenna in telinfo["antennas"]
         if antenna["name"] in antenna_names
     }
-    assert len(antenna_telinfo) == len(antenna_names), f"Telescope information does not cover RAW listed antenna: {set(antenna_names).difference(telescope_antenna_names)}"
+    assert len(antenna_telinfo) == len(antenna_names), f"Telescope information does not cover RAW listed antenna: {set(antenna_names).difference(set([ant['name'] for ant in telinfo]))}"
 
     bfr5genie.write(
         output_filepath,
@@ -329,17 +351,34 @@ def generate_raster_for_raw(arg_values=None):
     raster_ra_relative = all(map(lambda s: s[0] in ["+", "-"], args.raster_ra[0:2]))
     raster_dec_relative = all(map(lambda s: s[0] in ["+", "-"], args.raster_dec[0:2]))
 
-    args.raster_ra = list(map(float, args.raster_ra))
-    args.raster_dec = list(map(float, args.raster_dec))
-    if args.include_stops:
-        # add step to stop to ensure it is included
-        args.raster_ra[1] += args.raster_ra[2]
-        args.raster_dec[1] += args.raster_dec[2]
+    args.raster_ra[0:2] = list(map(_parse_sexagesimal, args.raster_ra[0:2]))
+    if args.raster_ra[2][0] == "/":
+        args.raster_ra[2] = int(args.raster_ra[2][1:])
+        bfr5genie.logger.debug(f"linspace raster ra arguments: {args.raster_ra}")
+        args.raster_ra = numpy.linspace(*args.raster_ra)
+    else:
+        args.raster_ra[2] = float(args.raster_ra[2])
+        if args.include_stops:
+            args.raster_ra[1] += args.raster_ra[2]
+        
+        args.raster_ra = numpy.arange(*args.raster_ra)
 
-    for ra_index, ra in enumerate(numpy.arange(*args.raster_ra)):
+    args.raster_dec[0:2] = list(map(_parse_sexagesimal, args.raster_dec[0:2]))
+    if args.raster_dec[2][0] == "/":
+        args.raster_dec[2] = int(args.raster_dec[2][1:])
+        bfr5genie.logger.debug(f"linspace raster dec arguments: {args.raster_dec}")
+        args.raster_dec = numpy.linspace(*args.raster_dec)
+    else:
+        args.raster_dec[2] = float(args.raster_dec[2])
+        if args.include_stops:
+            args.raster_dec[1] += args.raster_dec[2]
+        
+        args.raster_dec = numpy.arange(*args.raster_dec)
+
+    for ra_index, ra in enumerate(args.raster_ra):
         if not raster_ra_relative:
             ra -= primary_center.ra.hourangle
-        for dec_index, dec in enumerate(numpy.arange(*args.raster_dec)):
+        for dec_index, dec in enumerate(args.raster_dec):
             if not raster_dec_relative:
                 dec -= primary_center.dec.degree
             beam_strs.append(f"{ra:+0.15f},{dec:+0.15f},raster_{ra_index}_{dec_index}")

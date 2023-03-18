@@ -18,6 +18,7 @@ logger.addHandler(logging.StreamHandler())
 logger.setLevel(logging.ERROR)
 
 def _degrees_process(value):
+    logger.debug(f"_degrees_process input: {value}")
     if isinstance(value, str):
         if value.count(':') == 2:
             value = value.split(':')
@@ -26,8 +27,9 @@ def _degrees_process(value):
                 value_f -= (float(value[1]) + float(value[2])/60)/60
             else:
                 value_f += (float(value[1]) + float(value[2])/60)/60
+            logger.debug(f"_degrees_process output: {value_f}")
             return value_f
-        return float(value)
+    logger.debug(f"_degrees_process output: {float(value)}")
     return float(value)
 
 def transform_antenna_positions_ecef_to_xyz(longitude_deg, latitude_deg, altitude, antenna_positions):
@@ -40,29 +42,106 @@ def transform_antenna_positions_ecef_to_xyz(longitude_deg, latitude_deg, altitud
         latitude_deg,
         altitude,
     )
+    logger.debug(f"LLA ({(longitude_deg,latitude_deg,altitude)}) converted to ECEF-XYZ ({telescopeCenterXyz})")
     for i in range(antenna_positions.shape[0]):
         antenna_positions[i, :] -= telescopeCenterXyz
 
-def _compute_ha_dec_with_astrom(astrom, radec):
+
+def transform_antenna_positions_xyz_to_enu(longitude_rad, latitude_rad, altitude, antenna_positions):
+    sin_long = numpy.sin(longitude_rad)
+    cos_long = numpy.cos(longitude_rad)
+    sin_lat = numpy.sin(latitude_rad)
+    cos_lat = numpy.cos(latitude_rad)
+
+    enus = numpy.zeros(antenna_positions.shape, dtype=numpy.float64)
+
+    for ant in range(antenna_positions.shape[0]):
+        # RotZ(longitude) anti-clockwise
+        x = cos_long*antenna_positions[ant, 0] - (-sin_long)*antenna_positions[ant, 1]
+        y = (-sin_long)*antenna_positions[ant, 0] + cos_long*antenna_positions[ant, 1]
+        z = antenna_positions[ant, 2]
+
+        # RotY(latitude) clockwise
+        x_ = x
+        x = cos_lat*x_ + sin_lat*z
+        z = -sin_lat*x_ + cos_lat*z
+
+        # Permute (UEN) to (ENU)
+        enus[ant, 0] = y
+        enus[ant, 1] = z
+        enus[ant, 2] = x
+
+    return enus
+
+
+def _compute_uvw_from_enu(ts, source, ant_enu_coordinates, lla, dut1=0.0, astrom=None):
     """Computes UVW antenna coordinates with respect to reference
+
     Args:
-        radec: SkyCoord
+        ts: array of Times to compute the coordinates
+        source: source SkyCoord
+        ant_enu_coordinates: numpy.ndarray
+            Antenna XYZ coordinates, relative to reference position. This is indexed as (antenna_number, xyz)
+        lla: tuple Reference Coordinates (radians)
+            Longitude, Latitude, Altitude. The antenna_coordinates must have
+            this component in them.
+        astrom: erfa.astrom
+            erfa.apco13 generated astrom value to reuse.
 
     Returns:
-        (ra=Hour-Angle, dec=Declination, unit='rad')
+        The UVW coordinates in metres of each antenna. This
+        is indexed as (antenna_number, uvw)
     """
-    ri, di = erfa.atciq(
-        radec.ra.rad, radec.dec.rad,
-        0, 0, 0, 0,
-        astrom
-    )
-    aob, zob, ha, dec, rob = erfa.atioq(
-        ri, di,
-        astrom
-    )
-    return ha, dec
 
-def _compute_uvw(ts, source, ant_coordinates, lla, dut1=0.0):
+    if astrom is not None:
+        ri, di = erfa.atciq(
+            source.ra.rad, source.dec.rad,
+            0, 0, 0, 0,
+            astrom
+        )
+        aob, zob, ha_rad, dec_rad, rob = erfa.atioq(
+            ri, di,
+            astrom
+        )
+    else:
+        aob, zob, ha_rad, dec_rad, rob, eo = erfa.atco13(
+            source.ra.rad, source.dec.rad,
+            0, 0, 0, 0,
+            time_jd, 0,
+            dut1,
+            *lla,
+            0, 0,
+            0, 0, 0, 0
+        )
+        
+    sin_hangle = numpy.sin(ha_rad)
+    cos_hangle = numpy.cos(ha_rad)
+    sin_declination = numpy.sin(dec_rad)
+    cos_declination = numpy.cos(dec_rad)
+    sin_latitude = numpy.sin(lla[1])
+    cos_latitude = numpy.cos(lla[1])
+
+    uvws = numpy.zeros(ant_enu_coordinates.shape, dtype=numpy.float64)
+
+    for ant in range(ant_enu_coordinates.shape[0]):
+        # RotX(latitude) anti-clockwise
+        x = ant_enu_coordinates[ant, 0]
+        y = cos_latitude*ant_enu_coordinates[ant, 1] - (-sin_latitude)*ant_enu_coordinates[ant, 2]
+        z = (-sin_latitude)*ant_enu_coordinates[ant, 1] + cos_latitude*ant_enu_coordinates[ant, 2]
+
+        # RotY(hour_angle) clockwise
+        x_ = x
+        x = cos_hangle*x_ + sin_hangle*z
+        z = -sin_hangle*x_ + cos_hangle*z
+
+        # RotX(declination) clockwise
+        uvws[ant, 0] = x
+        uvws[ant, 1] = cos_declination*y - sin_declination*z
+        uvws[ant, 2] = sin_declination*y + cos_declination*z
+
+    return uvws
+
+def _compute_uvw(ts, source, ant_coordinates, lla, dut1=0.0, astrom=None):
     """Computes UVW antenna coordinates with respect to reference
 
     Args:
@@ -73,21 +152,35 @@ def _compute_uvw(ts, source, ant_coordinates, lla, dut1=0.0):
         lla: tuple Reference Coordinates (radians)
             Longitude, Latitude, Altitude. The antenna_coordinates must have
             this component in them.
+        astrom: erfa.astrom
+            erfa.apco13 generated astrom value to reuse.
 
     Returns:
         The UVW coordinates in metres of each antenna. This
         is indexed as (antenna_number, uvw)
     """
 
-    # get valid eraASTROM instance
-    astrom, eo = erfa.apco13(
-        ts.jd, 0,
-        dut1,
-        *lla,
-        0, 0,
-        0, 0, 0, 0
-    )
-    ha_rad, dec_rad = _compute_ha_dec_with_astrom(astrom, source)
+    if astrom is not None:
+        ri, di = erfa.atciq(
+            source.ra.rad, source.dec.rad,
+            0, 0, 0, 0,
+            astrom
+        )
+        aob, zob, ha_rad, dec_rad, rob = erfa.atioq(
+            ri, di,
+            astrom
+        )
+    else:
+        aob, zob, ha_rad, dec_rad, rob, eo = erfa.atco13(
+            source.ra.rad, source.dec.rad,
+            0, 0, 0, 0,
+            ts.jd, 0,
+            dut1,
+            *lla,
+            0, 0,
+            0, 0, 0, 0
+        )
+        
     sin_long_minus_hangle = numpy.sin(lla[0]-ha_rad)
     cos_long_minus_hangle = numpy.cos(lla[0]-ha_rad)
     sin_declination = numpy.sin(dec_rad)
@@ -113,13 +206,6 @@ def _compute_uvw(ts, source, ant_coordinates, lla, dut1=0.0):
 
     return uvws
 
-def _create_delay_phasors(delay, frequencies):
-    return -1.0j*2.0*numpy.pi*delay*frequencies
-
-
-def _get_fringe_rate(delay, fringeFrequency):
-    return -1.0j*2.0*numpy.pi*delay*fringeFrequency
-
 
 def phasor_delays(
     antennaPositions: numpy.ndarray, # [Antenna, XYZ] relative to whatever reference position
@@ -128,6 +214,7 @@ def phasor_delays(
     times: numpy.ndarray, # [unix]
     lla: tuple, # Longitude, Latitude, Altitude (radians)
     referenceAntennaIndex: int = 0,
+    dut1: float = 0.0
 ):
     """
     Return
@@ -146,21 +233,33 @@ def phasor_delays(
 
     for t, tval in enumerate(times):
         ts = Time(tval, format='unix')
+
+        # get valid eraASTROM instance
+        astrom, eo = erfa.apco13(
+            ts.jd, 0,
+            dut1,
+            *lla,
+            0, 0,
+            0, 0, 0, 0
+        )
+
         boresightUvw = _compute_uvw(
             ts,
             boresightCoordinate,
             antennaPositions,
-            lla
+            lla,
+            astrom = astrom
         )
         boresightUvw -= boresightUvw[referenceAntennaIndex:referenceAntennaIndex+1, :]
         for b, beam_coord in enumerate(beamCoordinates):
-            # These UVWs are centred at the reference antenna,
+            # These UVWs are centered at the reference antenna,
             # i.e. UVW_irefant = [0, 0, 0]
             beamUvw = _compute_uvw( # [Antenna, UVW]
                 ts,
                 beam_coord,
                 antennaPositions,
-                lla
+                lla,
+                astrom = astrom
             )
             beamUvw -= beamUvw[referenceAntennaIndex:referenceAntennaIndex+1, :]
 
@@ -196,17 +295,8 @@ def phasors_from_delays(
 
     for t in range(delays_ns.shape[0]):
         for b in range(delays_ns.shape[1]):
-            for a, delay in enumerate(delays_ns[t, b, :]):
-                delay_factors = _create_delay_phasors(
-                    delay*1e-9,
-                    frequencies - frequencies[0]
-                )
-                fringe_factor = _get_fringe_rate(
-                    delay*1e-9,
-                    frequencies[0]
-                )
-
-                phasor = numpy.exp(delay_factors+fringe_factor)
+            for a, delay_ns in enumerate(delays_ns[t, b, :]):
+                phasor = numpy.exp(-1.0j*2.0*numpy.pi*delay_ns*1e-9*frequencies)
                 phasors[b, a, :, t, :] = numpy.reshape(numpy.repeat(phasor, 2), (len(phasor), 2)) * calibrationCoefficients[:, :, a]
     return phasors
 
@@ -240,7 +330,7 @@ def get_telescope_metadata(telescope_info_toml_filepath):
     antenna_positions = numpy.array([antenna["position"] for antenna in telescope_info["antennas"]])
 
     if "ecef" == telescope_info["antenna_position_frame"].lower():
-        logger.info("Transforming antenna positions from XYZ to ECEF")
+        logger.info("Transforming antenna positions from XYZ to ECEF.")
         transform_antenna_positions_ecef_to_xyz(
             longitude,
             latitude,
@@ -250,6 +340,7 @@ def get_telescope_metadata(telescope_info_toml_filepath):
     else:
         # TODO handle enu
         assert telescope_info["antenna_position_frame"].lower() == "xyz"
+        logger.info("Taking verbatim XYZ antenna positions.")
 
     return {
         "telescope_name": telescope_info["telescope_name"],

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bfr5genie"
-version = "0.0.14"
+version = "0.0.15"
 authors = [
   { name="Ross Donnachie", email="code@radonn.co.za" },
 ]

@@ -171,8 +171,9 @@ def _add_arguments_raster(parser):
         type=str,
         help="""The right-ascension range (in hours) for a raster set of beams.
         Can be specified as sexagesimal.
-        Begin both start/stop values with a sign for phase-center relative values.
-        Begin step value with '/' to indicate that it is number of steps instead of step size.
+        Begin both start/stop values with a sign ('+' or '-') for `--raster-center` relative values.
+        Further prepend either start/stop value with an 's' to specify multiples of step size.
+        Begin step value with '/' specify the step count instead of the step size.
         """
     )
     parser.add_argument(
@@ -183,8 +184,21 @@ def _add_arguments_raster(parser):
         type=str,
         help="""The declination range (in degrees) for a raster set of beams.
         Can be specified as sexagesimal (with ':').
-        Begin both start/stop values with a sign for phase-center relative values.
-        Begin step value with '/' to indicate that it is number of steps instead of step size.
+        Begin both start/stop values with a sign ('+' or '-') for `--raster-center` relative values.
+        End either start/stop integer value with an 's' to specify multiples of step size.
+        Begin step value with '/' specify the step count instead of the step size.
+        """
+    )
+    parser.add_argument(
+        "--raster-center",
+        default=["+0.0", "+0.0"],
+        metavar=("ra_center", "dec_center"),
+        nargs=2,
+        type=str,
+        help="""The center point of the raster (units hours, degrees).
+        Can be specified as sexagesimal (with ':').
+        Begin both start/stop values with a sign ('+' or '-') for phase-center relative values.
+        Note that the default is the phase-center.
         """
     )
     parser.add_argument(
@@ -244,8 +258,8 @@ def _generate_bfr5_for_raw(
         bfr5genie.logger.warning(f"No beam coordinates provided, forming a beam on phase-center.")
         beams["PHASE_CENTER"] = phase_center
         nbeams = 1
-
-    beam_coordinates_string = "\n\t".join(f"{k}: {v}".replace("\n", "") for k, v in beams.items())
+    
+    beam_coordinates_string = "\n\t".join(f"{k}: ({v.ra.hourangle} h, {v.dec.degree} d)" for k, v in beams.items())
     bfr5genie.logger.info(f"Beam coordinates:\n\t{beam_coordinates_string}")
 
     antenna_telinfo = {
@@ -337,9 +351,71 @@ def generate_targets_for_raw(arg_values=None):
         beam_strs
     )
 
+
+def _parse_raster_coord_truple(truple, include_stops, relative_value):
+    """
+    Returns an iterable
+    """
+    
+    start_units_not_steps = truple[0][0] != "s"
+    if not start_units_not_steps:
+        truple[0] = truple[0][1:]
+
+    stop_units_not_steps = truple[1][0] != "s"
+    if not stop_units_not_steps:
+        truple[1] = truple[1][1:]
+
+    truple_relative = all(map(lambda s: s[0] in ["+", "-"], truple[0:2]))
+    step_sized_not_counted = truple[2][0] != "/"
+
+    if not step_sized_not_counted and not all([start_units_not_steps, stop_units_not_steps]):
+        raise ValueError(f"Cannot specify coordinate in units of steps when the step is specified as a count.")
+    
+    step = truple[2]
+    if step_sized_not_counted:
+        step = _parse_sexagesimal(step)
+    else:
+        step = int(step[1:])
+
+    if start_units_not_steps:
+        start = _parse_sexagesimal(truple[0])
+    else:
+        start = float(truple[0])*step
+    if stop_units_not_steps:
+        stop = _parse_sexagesimal(truple[1])
+    else:
+        stop = float(truple[1])*step
+    
+    if truple_relative:
+        start += relative_value
+        stop += relative_value
+
+    if step_sized_not_counted:
+        if include_stops:
+            stop += step
+        return numpy.arange(start, stop, step)
+    else:
+        return numpy.linspace(start, stop, step)
+
+
+def _parse_raster_coord(coord, primary_center):
+    coord_relative = all(map(lambda s: s[0] in ["+", "-"], coord))
+    coord = list(map(_parse_sexagesimal, coord))
+    if coord_relative:
+        coord[0] += primary_center.ra.hourangle
+        coord[1] += primary_center.dec.degree
+    
+    return SkyCoord(
+        coord[0] * numpy.pi / 12.0 ,
+        coord[1] * numpy.pi / 180.0 ,
+        unit='rad'
+    )
+
+
 def generate_raster_for_raw(arg_values=None):
     parser = _base_arguments_parser()
     _add_arguments_raster(parser)
+    print(sys.argv[1:])
     args = parser.parse_args(arg_values if arg_values is not None else sys.argv[1:])
 
     raw_header, antenna_names, frequencies_hz, times_unix, phase_center, primary_center, telinfo, output_filepath, calcoeff_bandpass, calcoeff_gain = _parse_base_arguments(args)
@@ -348,40 +424,14 @@ def generate_raster_for_raw(arg_values=None):
     raster_args = [args.raster_ra, args.raster_dec]
     assert all(raster_args), f"Must supply both raster arguments for raster beams to be generated"
 
-    raster_ra_relative = all(map(lambda s: s[0] in ["+", "-"], args.raster_ra[0:2]))
-    raster_dec_relative = all(map(lambda s: s[0] in ["+", "-"], args.raster_dec[0:2]))
-
-    args.raster_ra[0:2] = list(map(_parse_sexagesimal, args.raster_ra[0:2]))
-    if args.raster_ra[2][0] == "/":
-        args.raster_ra[2] = int(args.raster_ra[2][1:])
-        bfr5genie.logger.debug(f"linspace raster ra arguments: {args.raster_ra}")
-        args.raster_ra = numpy.linspace(*args.raster_ra)
-    else:
-        args.raster_ra[2] = float(args.raster_ra[2])
-        if args.include_stops:
-            args.raster_ra[1] += args.raster_ra[2]
-        
-        args.raster_ra = numpy.arange(*args.raster_ra)
-
-    args.raster_dec[0:2] = list(map(_parse_sexagesimal, args.raster_dec[0:2]))
-    if args.raster_dec[2][0] == "/":
-        args.raster_dec[2] = int(args.raster_dec[2][1:])
-        bfr5genie.logger.debug(f"linspace raster dec arguments: {args.raster_dec}")
-        args.raster_dec = numpy.linspace(*args.raster_dec)
-    else:
-        args.raster_dec[2] = float(args.raster_dec[2])
-        if args.include_stops:
-            args.raster_dec[1] += args.raster_dec[2]
-        
-        args.raster_dec = numpy.arange(*args.raster_dec)
+    raster_relative_coord = _parse_raster_coord(args.raster_center, phase_center)
+    
+    args.raster_ra = _parse_raster_coord_truple(args.raster_ra, args.include_stops, raster_relative_coord.ra.hourangle)
+    args.raster_dec = _parse_raster_coord_truple(args.raster_dec, args.include_stops, raster_relative_coord.dec.degree)
 
     for ra_index, ra in enumerate(args.raster_ra):
-        if not raster_ra_relative:
-            ra -= primary_center.ra.hourangle
         for dec_index, dec in enumerate(args.raster_dec):
-            if not raster_dec_relative:
-                dec -= primary_center.dec.degree
-            beam_strs.append(f"{ra:+0.15f},{dec:+0.15f},raster_{ra_index}_{dec_index}")
+            beam_strs.append(f"{ra:0.15f},{dec:0.15f},raster_{ra_index}_{dec_index}")
 
     return _generate_bfr5_for_raw(
         raw_header,

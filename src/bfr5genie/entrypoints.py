@@ -244,8 +244,8 @@ def _generate_bfr5_for_raw(
         else:
             beam_name = f"BEAM_{i}"
         if all(coord_str[0] in ["+", "-"] for coord_str in coords[0:2]):
-            coords[0] = phase_center.ra.hourangle + float(coords[0])
-            coords[1] = phase_center.dec.deg + float(coords[1])
+            coords[0] = phase_center.ra.hourangle + _parse_sexagesimal(coords[0])
+            coords[1] = phase_center.dec.deg + _parse_sexagesimal(coords[1])
 
         beams[beam_name] = SkyCoord(
             float(coords[0]) * numpy.pi / 12.0,
@@ -329,7 +329,19 @@ def generate_targets_for_raw(arg_values=None):
             },
             epochs=jd_now
         )
-        eph = obj.ephemerides()
+        retries = 5
+        while True:
+            try:
+                retries -= 1
+                eph = obj.ephemerides()
+                break
+            except ValueError as err:
+                if retries == 0:
+                    message = f"Could not get ephemerides for target: {target} @ {jd_now} JD."
+                    logger.error(message)
+                    raise RuntimeError(message) from err
+                time.sleep(0.25)
+
         for row in eph:
             beam_strs.append(f"{row['RA']*12/180},{row['DEC']},{row['targetname']}")
 

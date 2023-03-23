@@ -219,7 +219,7 @@ def phasor_delays(
     """
     Return
     ------
-        delays_ns (T, A, B)
+        delays_ns (T, B, A)
     """
 
     delays_ns = numpy.zeros(

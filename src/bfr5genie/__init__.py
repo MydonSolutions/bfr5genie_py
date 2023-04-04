@@ -461,6 +461,7 @@ def get_raw_metadata(raw_filepaths, raw_antname_callback=None):
     frequencies_hz = (frequency_channel_0_hz + numpy.arange(schan+nchan)*raw_header["CHAN_BW"])*1e6
     mid_chan = schan + (nchan//2)
     assert frequencies_hz[mid_chan] == raw_header["OBSFREQ"]*1e6, f"frequencies_hz[{mid_chan}] = {mid_chan} != {raw_header['OBSFREQ']*1e6} (OBSFREQ)"
+    frequencies_hz += raw_header["CHAN_BW"]*0.5e6
 
     times_unix = (start_time_unix + 0.5 * block_time_span_s) + numpy.arange(raw_blocks)*block_time_span_s
 

@@ -83,8 +83,8 @@ def _parse_base_arguments(args):
     if args.phase_center is not None:
         (phase_center_ra, phase_center_dec) = args.phase_center.split(',')
         phase_center = bfr5genie.SkyCoord(
-            float(phase_center_ra) * numpy.pi / 12.0 ,
-            float(phase_center_dec) * numpy.pi / 180.0 ,
+            float(phase_center_ra) * numpy.pi / 12.0,
+            float(phase_center_dec) * numpy.pi / 180.0,
             unit='rad'
         )
     
@@ -158,7 +158,10 @@ def _add_arguments_beams(parser):
         default=None,
         action="append",
         metavar=("ra_hour,dec_deg[,name]"),
-        help="The coordinates of a beam (optionally the name too). If the coordinates both start with either + or - symbols, they are made relative to the phase-center."
+        help="""The coordinates of a beam (optionally the name too). 
+        Can be specified as sexagesimal.
+        Begin both start/stop values with a sign ('+' or '-') for `--phase-center` relative values.
+        """
     )
 
 
@@ -246,6 +249,9 @@ def _generate_bfr5_for_raw(
         if all(coord_str[0] in ["+", "-"] for coord_str in coords[0:2]):
             coords[0] = phase_center.ra.hourangle + _parse_sexagesimal(coords[0])
             coords[1] = phase_center.dec.deg + _parse_sexagesimal(coords[1])
+        else:
+            coords[0] = _parse_sexagesimal(coords[0])
+            coords[1] = _parse_sexagesimal(coords[1])
 
         beams[beam_name] = SkyCoord(
             float(coords[0]) * numpy.pi / 12.0,

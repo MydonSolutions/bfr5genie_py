@@ -68,6 +68,7 @@ def _parse_base_arguments(args):
     if len(args.raw_filepaths) == 1 and not os.path.exists(args.raw_filepaths[0]):
         bfr5genie.logger.info(f"Given RAW filepath does not exist, assuming it is the stem.")
         args.raw_filepaths = glob.glob(f"{args.raw_filepaths[0]}*.raw")
+        args.raw_filepaths.sort()
         bfr5genie.logger.debug(f"Found {args.raw_filepaths}.")
 
     raw_header, antenna_names, frequencies_hz, times_unix, phase_center, primary_center = bfr5genie.get_raw_metadata(args.raw_filepaths, raw_antname_callback= None if not args.ata_raw else lambda x: x[:-1])

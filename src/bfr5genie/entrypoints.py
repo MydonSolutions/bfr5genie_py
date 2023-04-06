@@ -325,7 +325,7 @@ def generate_targets_for_raw(arg_values=None):
                 f"{target['ra']*24/360},{target['dec']},{target['source_id']}"
             )
     
-    jd_now = time.time()/86400 + 2440587.5 
+    jd_mean = numpy.mean(times_unix)/86400 + 2440587.5 
     for target in args.target:
         obj = Horizons(
             id=target,
@@ -334,7 +334,7 @@ def generate_targets_for_raw(arg_values=None):
                 'lat': telinfo["latitude"]*180/numpy.pi,
                 'elevation': telinfo["altitude"]/1000
             },
-            epochs=jd_now
+            epochs=jd_mean
         )
         retries = 5
         while True:

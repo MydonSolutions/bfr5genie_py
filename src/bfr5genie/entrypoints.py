@@ -129,7 +129,14 @@ def _add_arguments_targetselector(parser):
         "--targets-redis-key-timestamp",
         type=str,
         default=None,
-        help="The identifying timestamp of the redis key holding targets in JSON. If not supplied, it is ascertained from the starting time of the raw file."
+        help="The identifying timestamp of the redis key holding targets in JSON. If not supplied, it is ascertained from the targets-redis-key-timestamp-rawkey value."
+    )
+    parser.add_argument(
+        "--targets-redis-key-timestamp-rawkey",
+        type=str,
+        default="PKTIDX",
+        choices=["PKTIDX", "PKTSTART"],
+        help="The RAW key to use to calculate the timestamp of the target-selector's output redis key. While PKTIDX is unique per block (and so is different per file), PKTSTART is uniform across blocks."
     )
     parser.add_argument(
         "--take-targets",
@@ -308,8 +315,8 @@ def generate_targets_for_raw(arg_values=None):
     if args.take_targets > 0:
         redis_obj = redis.Redis(host=args.redis_hostname, port=args.redis_port)
         if args.targets_redis_key_timestamp is None:
-            file_start_packet_index = raw_header["SYNCTIME"] + raw_header["PKTIDX"]
-            bfr5genie.logger.info(f"Targets key timestamp is taken to be the starting packet-index of the file: {file_start_packet_index}")
+            file_start_packet_index = raw_header["SYNCTIME"] + raw_header[args.targets_redis_key_timestamp_rawkey]
+            bfr5genie.logger.info(f"Targets key timestamp is taken from {args.targets_redis_key_timestamp_rawkey}: {file_start_packet_index}")
             args.targets_redis_key_timestamp = file_start_packet_index
 
         targets_redis_key = f"{args.targets_redis_key_prefix}:{args.targets_redis_key_timestamp}"

@@ -321,8 +321,11 @@ def get_telescope_metadata(telescope_info_toml_filepath):
     }
     """
 
-    with open(telescope_info_toml_filepath, mode="rb") as f:
-        telescope_info = tomllib.load(f)
+    try:
+        with open(telescope_info_toml_filepath, mode="rb") as f:
+            telescope_info = tomllib.load(f)
+    except BaseException as err:
+        logger.error(f"Could not load '{telescope_info_toml_filepath}': {err}")
 
     longitude = _degrees_process(telescope_info["longitude"])
     latitude = _degrees_process(telescope_info["latitude"])

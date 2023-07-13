@@ -281,7 +281,7 @@ def _generate_bfr5_for_raw(
         for antenna in telinfo["antennas"]
         if antenna["name"] in antenna_names
     }
-    assert len(antenna_telinfo) == len(antenna_names), f"Telescope information does not cover RAW listed antenna: {set(antenna_names).difference(set([ant['name'] for ant in telinfo]))}"
+    assert len(antenna_telinfo) == len(antenna_names), f"Telescope information does not cover RAW listed antenna: {set(antenna_names).difference(set([ant['name'] for ant in telinfo['antennas']]))}"
 
     bfr5genie.write(
         output_filepath,

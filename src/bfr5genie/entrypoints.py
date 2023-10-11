@@ -306,6 +306,7 @@ def _generate_bfr5_for_raw(
 
 def generate_targets_for_raw(arg_values=None):
     parser = _base_arguments_parser()
+    _add_arguments_beams(parser)
     _add_arguments_targetselector(parser)
     args = parser.parse_args(arg_values if arg_values is not None else sys.argv[1:])
     
@@ -331,6 +332,9 @@ def generate_targets_for_raw(arg_values=None):
             beam_strs.append(
                 f"{target['ra']*24/360},{target['dec']},{target['source_id']}"
             )
+
+    if len(args.beam) > 0:
+        beam_strs += list(b for b in args.beam)
     
     jd_mean = numpy.mean(times_unix)/86400 + 2440587.5 
     for target in args.target:

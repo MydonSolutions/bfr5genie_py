@@ -47,6 +47,28 @@ def transform_antenna_positions_ecef_to_xyz(longitude_deg, latitude_deg, altitud
         antenna_positions[i, :] -= telescopeCenterXyz
 
 
+def transform_antenna_positions_enu_to_xyz(longitude_rad, latitude_rad, altitude, antenna_positions):
+    sin_long = numpy.sin(longitude_rad)
+    cos_long = numpy.cos(longitude_rad)
+    sin_lat = numpy.sin(latitude_rad)
+    cos_lat = numpy.cos(latitude_rad)
+
+    for ant in range(antenna_positions.shape[0]):
+        # RotX(latitude) anti-clockwise
+        x_ = antenna_positions[ant, 0]
+        y = cos_lat*antenna_positions[ant, 1] - (-sin_lat)*antenna_positions[ant, 2]
+        z = (-sin_lat)*antenna_positions[ant, 1] + cos_lat*antenna_positions[ant, 2]
+        
+        # RotY(latitude) clockwise
+        x = cos_lat*x_ + sin_lat*z
+        z = -sin_lat*x_ + cos_lat*z
+
+        # Permute (YZX) to (XYZ)
+        antenna_positions[ant, 0] = z
+        antenna_positions[ant, 1] = x
+        antenna_positions[ant, 2] = y
+
+
 def transform_antenna_positions_xyz_to_enu(longitude_rad, latitude_rad, altitude, antenna_positions):
     sin_long = numpy.sin(longitude_rad)
     cos_long = numpy.cos(longitude_rad)
@@ -54,7 +76,6 @@ def transform_antenna_positions_xyz_to_enu(longitude_rad, latitude_rad, altitude
     cos_lat = numpy.cos(latitude_rad)
 
     enus = numpy.zeros(antenna_positions.shape, dtype=numpy.float64)
-
     for ant in range(antenna_positions.shape[0]):
         # RotZ(longitude) anti-clockwise
         x = cos_long*antenna_positions[ant, 0] - (-sin_long)*antenna_positions[ant, 1]
@@ -333,15 +354,22 @@ def get_telescope_metadata(telescope_info_toml_filepath):
     antenna_positions = numpy.array([antenna["position"] for antenna in telescope_info["antennas"]])
 
     if "ecef" == telescope_info["antenna_position_frame"].lower():
-        logger.info("Transforming antenna positions from XYZ to ECEF.")
+        logger.info("Transforming antenna positions from ECEF to XYZ.")
         transform_antenna_positions_ecef_to_xyz(
             longitude,
             latitude,
             altitude,
             antenna_positions,
         )
+    elif "enu" == telescope_info["antenna_position_frame"].lower():
+        logger.info("Transforming antenna positions from ENU to XYZ.")
+        antenna_positions = transform_antenna_positions_enu_to_xyz(
+            longitude*numpy.pi/180.0,
+            latitude*numpy.pi/180.0,
+            altitude,
+            antenna_positions
+        )
     else:
-        # TODO handle enu
         assert telescope_info["antenna_position_frame"].lower() == "xyz"
         logger.info("Taking verbatim XYZ antenna positions.")
 

@@ -333,7 +333,7 @@ def generate_targets_for_raw(arg_values=None):
                 f"{target['ra']*24/360},{target['dec']},{target['source_id']}"
             )
 
-    if len(args.beam) > 0:
+    if args.beam is not None and len(args.beam) > 0:
         beam_strs += list(b for b in args.beam)
     
     jd_mean = numpy.mean(times_unix)/86400 + 2440587.5 
